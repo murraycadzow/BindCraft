@@ -6,8 +6,8 @@ pkg_manager='conda'
 cuda=''
 
 # Define the short and long options
-OPTIONS=p:c:
-LONGOPTIONS=pkg_manager:,cuda:
+OPTIONS=p:c:e:
+LONGOPTIONS=pkg_manager:,cuda:,env_prefix:
 
 # Parse the command-line options
 PARSED=$(getopt --options=$OPTIONS --longoptions=$LONGOPTIONS --name "$0" -- "$@")
@@ -24,6 +24,10 @@ while true; do
       cuda="$2"
       shift 2
       ;;
+    -e|--env_prefix)
+      env_prefix="$2"
+      shift 2
+      ;;
     --)
       shift
       break
@@ -38,6 +42,7 @@ done
 # Example usage of the parsed variables
 echo -e "Package manager: $pkg_manager"
 echo -e "CUDA: $cuda"
+echo "Conda env prefix: $env_prefix"
 
 ############################################################################################################
 ############################################################################################################
@@ -46,20 +51,32 @@ SECONDS=0
 
 # set paths needed for installation and check for conda installation
 install_dir=$(pwd)
+pkg_temp=$(mktemp -d) || exit
+
 CONDA_BASE=$(conda info --base 2>/dev/null) || { echo -e "Error: conda is not installed or cannot be initialised."; exit 1; }
 echo -e "Conda is installed at: $CONDA_BASE"
-
+CONDA_PKGS_DIRS="$pkgs_temp"
 ### BindCraft install begin, create base environment
 echo -e "Installing BindCraft environment\n"
-$pkg_manager create --name BindCraft python=3.10 -y || { echo -e "Error: Failed to create BindCraft conda environment"; exit 1; }
-conda env list | grep -w 'BindCraft' >/dev/null 2>&1 || { echo -e "Error: Conda environment 'BindCraft' does not exist after creation."; exit 1; }
+if [ -n "$env_prefix" ]; then
+    $pkg_manager create --prefix ${env_prefix}/BindCraft python=3.10 -y || { echo -e "Error: Failed to create BindCraft conda environment"; exit 1; }
+    printf "BindCraft environment created at ${env_prefix}/BindCraft"
+else
+    $pkg_manager create --name BindCraft python=3.10 -y || { echo -e "Error: Failed to create BindCraft conda environment"; exit 1; }
+    conda env list | grep -w 'BindCraft' >/dev/null 2>&1 || { echo -e "Error: Conda environment 'BindCraft' does not exist after creation."; exit 1; }
+fi
 
 # Load newly created BindCraft environment
+CONDA_BASE=$(conda info --base)
 echo -e "Loading BindCraft environment\n"
-source ${CONDA_BASE}/bin/activate ${CONDA_BASE}/envs/BindCraft || { echo -e "Error: Failed to activate the BindCraft environment."; exit 1; }
-[ "$CONDA_DEFAULT_ENV" = "BindCraft" ] || { echo -e "Error: The BindCraft environment is not active."; exit 1; }
-echo -e "BindCraft environment activated at ${CONDA_BASE}/envs/BindCraft"
-
+if [ -n "$env_prefix" ]; then
+	source ${CONDA_BASE}/bin/activate ${env_prefix}/BindCraft || { echo -e "Error: Failed to activate the BindCraft environment at the prefix ${env_prefix}" ; exit 1; }
+else
+	source ${CONDA_BASE}/bin/activate ${CONDA_BASE}/envs/BindCraft || { echo -e "Error: Failed to activate the BindCraft environment."; exit 1; }
+	[ "$CONDA_DEFAULT_ENV" = "BindCraft" ] || { echo -e "Error: The BindCraft environment is not active."; exit 1; }
+	echo -e "BindCraft environment activated at ${CONDA_BASE}/envs/BindCraft"
+fi
+CONDA_PKGS_DIRS="$pkgs_temp"
 # install required conda packages
 echo -e "Instaling conda requirements\n"
 if [ -n "$cuda" ]; then
@@ -135,7 +152,15 @@ echo -e "$pkg_manager cleaned up\n"
 
 ################## finish script
 t=$SECONDS 
+
+# clean out the conda tmp pkgs_dir
+echo to clean up remove: "$pkg_temp"
+
 echo -e "Successfully finished BindCraft installation!\n"
-echo -e "Activate environment using command: \"$pkg_manager activate BindCraft\""
+if [ -n "$env_prefix" ]; then
+    echo -e "Activate environment using command: \"$pkg_manager activate $env_prefix/BindCraft\""
+else
+    echo -e "Activate environment using command: \"$pkg_manager activate BindCraft\""
+fi
 echo -e "\n"
 echo -e "Installation took $(($t / 3600)) hours, $((($t / 60) % 60)) minutes and $(($t % 60)) seconds."
